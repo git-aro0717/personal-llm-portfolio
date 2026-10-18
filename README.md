@@ -114,7 +114,7 @@ node --test tests/ui_history.cjs tests/ui_documents.cjs
 app/                   Backend、Harness、推論アダプター、Lambda入口
 local_web/             localhost UI・SigV4中継・文書管理・SQLite制御
 tests/                 Python / UIのオフラインテスト
-deploy/                バックアップ・限定実API検証用スクリプト
+deploy/                限定実API検証用スクリプト・準備資料
 docs/                  設計、履歴、配備・E2E記録、ポートフォリオ資料
 events/chat.json       Lambda用の架空テストイベント
 template.yaml          SAM定義
