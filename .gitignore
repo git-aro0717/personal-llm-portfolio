@@ -1,0 +1,52 @@
+# Local Python environments and generated files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.aws-sam/
+samconfig.toml
+deploy/backups/
+deploy/iam/
+
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+.aws/
+secrets/
+*.pem
+*.key
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Private execution evidence and local release notes (retain on disk).
+/rollback-image-v1.txt
+/docs/deploy/*.jpg
+/docs/e2e/v1.1/*.jpg
+/docs/e2e/v1.1/*20261017.json
+
+# Additional private data, credentials and local tooling artifacts.
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.p12
+*.pfx
+*.keystore
+*.log
+*.dump
+node_modules/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+/private-documents/
+/uploads/

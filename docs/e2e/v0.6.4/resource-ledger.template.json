@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "run_id": null,
+  "status": "not_executed",
+  "approved_budget_usd": null,
+  "model": "gpt-5.6-luna",
+  "vector_stores": [],
+  "files": [],
+  "operations": [],
+  "response_ids": [],
+  "request_counts": {"responses": 0, "file_search_calls_observed": 0},
+  "cleanup": {"complete": false, "unknown_created_resources": false, "unresolved": []}
+}

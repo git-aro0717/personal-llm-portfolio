@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Personal LLM FastAPI backend (explicit mock or Bedrock mode)
+
+Parameters:
+  HarnessBackend:
+    Type: String
+    Default: mock
+    AllowedValues: [mock, bedrock, openai]
+  OpenAIModelId:
+    Type: String
+    Default: ''
+  OpenAISecretId:
+    Type: String
+    Default: ''
+    Description: Secrets Manager secret ARN or name, never the API key
+  OpenAIAllowedVectorStoreIds:
+    Type: String
+    Default: ''
+    MaxLength: 1024
+    AllowedPattern: '^(|vs_[A-Za-z0-9_-]{1,128}(,vs_[A-Za-z0-9_-]{1,128})*)$'
+    Description: Comma-separated authorized Vector Store IDs; empty disables File Search
+  CreateOpenAISecret:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+    Description: Opt-in metadata-only dedicated secret; populate its value privately before enabling openai
+  OpenAIMaxOutputTokens:
+    Type: Number
+    Default: 512
+    MinValue: 16
+    MaxValue: 4096
+  OpenAITimeoutSeconds:
+    Type: Number
+    Default: 60
+    MinValue: 1
+    MaxValue: 120
+  BedrockModelId:
+    Type: String
+    Default: ''
+  BedrockResourceArns:
+    Type: CommaDelimitedList
+    Default: arn:aws:bedrock:ap-southeast-2::foundation-model/not-configured
+    AllowedPattern: 'arn:(aws|aws-us-gov|aws-cn):bedrock:[a-z0-9-]+:([0-9]{12})?:(foundation-model|inference-profile|application-inference-profile|project)/[A-Za-z0-9._:/-]+'
+    ConstraintDescription: Each entry must be an explicit Bedrock model, profile, or project ARN without wildcards
+    Description: Explicit authorized ARN list; replace the non-existent placeholder before using Bedrock mode
+
+Conditions:
+  UseBedrock: !Equals [!Ref HarnessBackend, bedrock]
+  UseOpenAI: !Equals [!Ref HarnessBackend, openai]
+  CreateDedicatedOpenAISecret: !Equals [!Ref CreateOpenAISecret, 'true']
+  ReadDedicatedOpenAISecret: !And
+    - !Condition UseOpenAI
+    - !Condition CreateDedicatedOpenAISecret
+
+Resources:
+  OpenAISecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: CreateDedicatedOpenAISecret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: !Sub '${AWS::StackName}/openai-api-key'
+      Description: Dedicated OpenAI key; SecretString is populated outside CloudFormation
+      # No SecretString, generated password, or custom KMS key in the template.
+  BackendFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      Architectures: [arm64]
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          HARNESS_BACKEND: !Ref HarnessBackend
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          OPENAI_MODEL_ID: !Ref OpenAIModelId
+          OPENAI_ALLOWED_VECTOR_STORE_IDS: !Ref OpenAIAllowedVectorStoreIds
+          OPENAI_SECRET_ID: !If
+            - CreateDedicatedOpenAISecret
+            - !Ref OpenAISecret
+            - !Ref OpenAISecretId
+          OPENAI_MAX_OUTPUT_TOKENS: !Ref OpenAIMaxOutputTokens
+          OPENAI_TIMEOUT_SECONDS: !Ref OpenAITimeoutSeconds
+      FunctionUrlConfig:
+        AuthType: AWS_IAM
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - !If
+          - ReadDedicatedOpenAISecret
+          - Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref OpenAISecret
+          - !Ref AWS::NoValue
+        - !If
+          - UseBedrock
+          - Statement:
+              - Effect: Allow
+                Action: bedrock:InvokeModel
+                Resource: !Ref BedrockResourceArns
+          - !Ref AWS::NoValue
+    Metadata:
+      Dockerfile: Dockerfile.lambda
+      DockerContext: .
+      DockerTag: v0.1-arm64
+
+Outputs:
+  OpenAISecretArn:
+    Condition: CreateDedicatedOpenAISecret
+    Value: !Ref OpenAISecret
+  FunctionName:
+    Value: !Ref BackendFunction
+  FunctionUrl:
+    Value: !GetAtt BackendFunctionUrl.FunctionUrl

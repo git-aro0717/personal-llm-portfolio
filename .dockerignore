@@ -1,0 +1,13 @@
+.git
+.venv
+venv
+.env
+.env.*
+.aws
+secrets
+*.pem
+*.key
+**/__pycache__
+.pytest_cache
+.aws-sam
+tests

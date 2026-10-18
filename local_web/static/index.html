@@ -1,0 +1,5 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Personal LLM</title><link rel="stylesheet" href="/style.css"><script src="/documents.js" defer></script><script src="/ui.js" defer></script></head>
+<body><main><h1>Personal LLM</h1><p>v1.0 · CSV拡張 v1.1 · Lambda · 直近の会話を送信します。履歴は画面のメモリ内のみ（最大20件）</p><section id="documents"><h2>文書</h2><p>PDF・TXT・Markdown・CSV、最大5 MiB（CSVはTXTに変換）。選択なしは通常チャット。更新・アップロードはOpenAIに通信します。</p><input id="document-file" type="file" accept=".pdf,.txt,.md,.csv"><button id="document-upload" type="button">アップロード</button><button id="document-refresh" type="button">一覧・状態を更新</button><div id="document-list"></div><p id="document-status" role="status"></p></section><section id="history" aria-live="polite" aria-label="チャット履歴"></section><form id="chat"><label for="message">メッセージ</label><textarea id="message" rows="3" required maxlength="4000" placeholder="メッセージを入力"></textarea><button id="send" disabled>送信</button><button id="clear" type="button">履歴を消す</button></form><p id="status" role="status">接続準備中…</p></main></body>
+</html>

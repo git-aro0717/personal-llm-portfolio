@@ -1,0 +1,137 @@
+# OpenAI Lambda integration preparation
+
+Historical preparation proposal. The observations below predate the approved
+v0.4 rollout; current deployed state and verified inference are recorded in
+README.md under the v0.4 completion record. Policy JSON stays local and is Git-ignored.
+
+## Observed AWS state
+
+- Stack `personal-llm-system`, Sydney `ap-southeast-2`, `CREATE_COMPLETE`.
+- Function `personal-llm-system-BackendFunction-m0SeYuYWmmnD`, ARM64, 512 MiB,
+  timeout 300 seconds; currently `HARNESS_BACKEND=mock` and no OpenAI variables.
+- No customer VPC attachment. Normal Lambda networking supports outbound HTTPS;
+  actual OpenAI connectivity from Lambda is still untested.
+- Function URL remains AWS_IAM. Local bridge target, SigV4, Host/Origin and CSRF
+  validation are unchanged.
+- Lambda execution role `personal-llm-system-BackendFunctionRole-fgcqQAfGvKVf`
+  has only AWSLambdaBasicExecutionRole; no secret-read inline policy.
+- CloudFormation execution role `personal-llm-cfn-execution-role` has only
+  AWSCloudFormationFullAccess (`cloudformation:*`); AdministratorAccess is absent.
+- No samconfig file was found in the repository or supplied build directory.
+  Recovery settings contain the *old deleted stack ID* and must not be used to
+  identify the current stack. Use the current live stack name/ID.
+- IAM simulation and listing the deployer's policies were denied. Deployer
+  PassRole effective permission is therefore unverified, not confirmed missing.
+  The inspected CloudFormation role policies do not grant PassRole to Lambda.
+
+## Template proposal
+
+`CreateOpenAISecret=false` remains the default. Explicitly setting it true adds
+one dedicated Secrets Manager Secret named `personal-llm-system/openai-api-key`.
+There is no SecretString or GenerateSecretString in CloudFormation: creation
+produces metadata only, with no usable credential version until the owner enters
+the key privately. The default AWS-managed `aws/secretsmanager` encryption is used.
+No custom KMS key or extra kms:Decrypt grant is proposed.
+
+The secret is retained on deletion/replacement. Keep CreateOpenAISecret=true
+when switching back to Mock so it stays managed by the stack. Turning it false
+would retain but orphan the secret and requires explicit review; re-enabling it
+could conflict with the retained name. Do not toggle this flag as a rollback.
+
+Only `HarnessBackend=openai` plus CreateOpenAISecret=true attaches GetSecretValue
+to the exact secret ARN from `Ref OpenAISecret`. No wildcard secret-read grant.
+OPENAI_SECRET_ID then receives that ARN, never the secret value. External-secret
+mode remains supported by the adapter, but its permissions are not automatically
+granted by this template; the dedicated managed-secret path is recommended.
+
+## Permission proposals (not applied)
+
+`iam/openai-passrole-proposals.json` is a container with two separate policy
+documents (now three, including DeployerImageUploadPolicy). It is not itself an IAM policy; apply each named child only after
+approval:
+
+1. DeployerIdentityPolicy -> `personal-llm-dev`: PassRole of the CloudFormation
+   execution role only to cloudformation.amazonaws.com, if currently absent.
+2. CloudFormationExecutionRolePolicy -> `personal-llm-cfn-execution-role`:
+   PassRole of the existing Lambda execution role only to lambda.amazonaws.com;
+   read/write its inline policies; create/describe/tag the one dedicated secret.
+   The six `?` characters match only Secrets Manager's generated ARN suffix.
+
+The template itself adds the runtime GetSecretValue policy to the Lambda role.
+CloudFormation does not need to receive or read the API key to build that policy.
+The owner entering the key separately needs PutSecretValue on the exact created
+secret ARN; do not grant that ability to the Lambda runtime.
+
+The proposals now include exact-function Lambda update/read and exact-repository
+ECR retrieval/upload operations. They are not a verified replacement for every SAM
+deployment permission. SAM's uploading identity needs any required existing
+artifact-bucket permissions too. See the IAM review（原開発環境の非同梱資料）.
+Do not restore
+AdministratorAccess or create a new repository just to bypass a denied operation.
+SCPs, boundaries and trust policies may still limit effective permissions.
+
+## Approval-separated rollout
+
+1. Review dedicated-secret creation and limited deployer/CloudFormation role
+   permissions. Obtain approval before any AWS/IAM changes.
+2. Build and prepare a *non-executed* change set with CreateOpenAISecret=true,
+   HarnessBackend=mock. Keep region, stack, CloudFormation role, ARM64 and existing
+   ECR repository. Review IAM changes, replacements/removals, then obtain approval
+   to execute. Check completion and Secret ARN without reading SecretString.
+3. Owner enters the OpenAI key in Secrets Manager's console as a JSON field named
+   api_key. Never place it in CLI arguments, source files, SAM parameters, Lambda
+   environment variables, chat or logs. No new API key is generated by the template.
+4. Prepare a second non-executed change set with CreateOpenAISecret=true,
+   HarnessBackend=openai, OpenAIModelId=<approved Responses model>. Output limit
+   and timeout default to 512 and 60; use the settings that passed the owner's
+   local test. Confirm exact-secret GetSecretValue and approval before execution.
+5. After paid-call approval, send one short message through the existing local
+   web UI. Verify 200, actual answer, openai startup log and fixed diagnostic
+   categories in CloudWatch. Do not automatically retry on failure.
+6. Rollback proposal: HarnessBackend=mock while retaining CreateOpenAISecret=true.
+   This removes runtime read permission and preserves the dedicated secret.
+   Get approval for the rollback change set; no resource deletion is needed.
+
+Local preparation commands (no API call):
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+sam validate --lint
+sam build
+```
+
+After approvals, use SAM deploy with `--no-execute-changeset`, explicit
+`--stack-name personal-llm-system --region ap-southeast-2`, the existing execution
+role ARN, `--capabilities CAPABILITY_IAM`, and the existing repository mapping:
+
+```text
+BackendFunction=000000000000.dkr.ecr.ap-southeast-2.amazonaws.com/example-backend
+```
+
+Pass this through `--image-repositories` rather than creating a new repository.
+The code should be rebuilt from the current template, not the old recovery image.
+Do not execute the change set until approved. No deploy command was run here.
+
+## Costs and risks
+
+Secrets Manager list pricing: about US$0.40/secret/month plus US$0.05 per 10,000
+API calls. This adapter fetches AWSCURRENT once per inference; 1,000 requests/month
+is about US$0.405 for the secret/read calls, excluding tax and other services.
+Add OpenAI token charges, Lambda duration/requests, CloudWatch and image storage.
+No NAT gateway, new VPC endpoint, custom KMS key or new compute service is proposed.
+
+- IAM/Secret owners can obtain the key; runtime plaintext exists transiently in
+  process memory. Avoid debug HTTP logging and environment/SecretString dumps.
+- Secret read failure must stop before any OpenAI request and return generic 502.
+- No auto-retries; timeout ambiguity can still mean OpenAI processed the request.
+- store:false is not a guarantee of zero provider-side retention. Review OpenAI
+  data handling before sending sensitive content.
+- Retained secrets continue costing money until separately approved for removal.
+- Repeated GetSecretValue trades small cost/latency for immediate key rotation.
+  No disk or cross-request credential cache is introduced.
+- Private VPC attachment added later would require a new egress review.
+
+Sources:
+- https://aws.amazon.com/secrets-manager/pricing/
+- https://docs.aws.amazon.com/lambda/latest/dg/troubleshooting-networking.html
+- https://docs.aws.amazon.com/cli/latest/reference/secretsmanager/get-secret-value.html
